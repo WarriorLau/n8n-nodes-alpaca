@@ -47,16 +47,23 @@ export class AlpacaApi implements ICredentialType {
 			description: 'Select the trading environment',
 		},
 		{
-			displayName: 'Base URL',
+			displayName: 'Trading API Base URL',
 			name: 'baseUrl',
 			type: 'string',
 			default: 'https://paper-api.alpaca.markets',
-			description: 'Override the default base URL (optional)',
+			description: 'Override the default Trading API base URL (optional)',
 			displayOptions: {
 				show: {
 					environment: ['paper'],
 				},
 			},
+		},
+		{
+			displayName: 'Market Data API Base URL',
+			name: 'marketDataBaseUrl',
+			type: 'string',
+			default: 'https://data.alpaca.markets',
+			description: 'Market Data API base URL (for bars, trades, quotes). Default: https://data.alpaca.markets',
 		},
 	];
 }

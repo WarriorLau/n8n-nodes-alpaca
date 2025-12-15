@@ -368,12 +368,17 @@ export class Alpaca implements INodeType {
 			apiSecretKey: string;
 			environment: string;
 			baseUrl?: string;
+			marketDataBaseUrl?: string;
 		};
 
-		const baseUrl =
+		// Trading API base URL (账户、订单、持仓等)
+		const tradingBaseUrl =
 			credentials.environment === 'live'
 				? credentials.baseUrl || 'https://api.alpaca.markets'
 				: credentials.baseUrl || 'https://paper-api.alpaca.markets';
+		
+		// Market Data API base URL (市场数据、K线、交易、报价等)
+		const marketDataBaseUrl = credentials.marketDataBaseUrl || 'https://data.alpaca.markets';
 
 		for (let i = 0; i < items.length; i++) {
 			const operation = this.getNodeParameter('operation', i) as string;
@@ -383,39 +388,39 @@ export class Alpaca implements INodeType {
 			try {
 				switch (operation) {
 					case 'getAccount':
-						responseData = await makeRequest.call(this, baseUrl, credentials, 'GET', '/v2/account');
+						responseData = await makeRequest.call(this, tradingBaseUrl, credentials, 'GET', '/v2/account');
 						break;
 
 					case 'getPositions':
-						responseData = await makeRequest.call(this, baseUrl, credentials, 'GET', '/v2/positions');
+						responseData = await makeRequest.call(this, tradingBaseUrl, credentials, 'GET', '/v2/positions');
 						break;
 
 					case 'getOrders':
-						responseData = await getOrders.call(this, baseUrl, credentials, i);
+						responseData = await getOrders.call(this, tradingBaseUrl, credentials, i);
 						break;
 
 					case 'createOrder':
-						responseData = await createOrder.call(this, baseUrl, credentials, i);
+						responseData = await createOrder.call(this, tradingBaseUrl, credentials, i);
 						break;
 
 					case 'cancelOrder':
-						responseData = await cancelOrder.call(this, baseUrl, credentials, i);
+						responseData = await cancelOrder.call(this, tradingBaseUrl, credentials, i);
 						break;
 
 					case 'getBars':
-						responseData = await getBars.call(this, baseUrl, credentials, i);
+						responseData = await getBars.call(this, marketDataBaseUrl, credentials, i);
 						break;
 
 					case 'getLatestBar':
-						responseData = await getLatestBar.call(this, baseUrl, credentials, i);
+						responseData = await getLatestBar.call(this, marketDataBaseUrl, credentials, i);
 						break;
 
 					case 'getTrades':
-						responseData = await getTrades.call(this, baseUrl, credentials, i);
+						responseData = await getTrades.call(this, marketDataBaseUrl, credentials, i);
 						break;
 
 					case 'getQuotes':
-						responseData = await getQuotes.call(this, baseUrl, credentials, i);
+						responseData = await getQuotes.call(this, marketDataBaseUrl, credentials, i);
 						break;
 
 					default:
