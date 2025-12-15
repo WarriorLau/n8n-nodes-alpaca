@@ -497,8 +497,6 @@ async function makeRequest(
 			'Content-Type': 'application/json',
 		},
 		json: true,
-		// 不自动抛出HTTP错误，允许我们手动处理
-		ignoreHttpStatusErrors: true,
 	};
 
 	if (body) {
@@ -507,80 +505,69 @@ async function makeRequest(
 
 	try {
 		const response = await this.helpers.httpRequest(options);
-		
-		// httpRequest在ignoreHttpStatusErrors为true时，会返回包含statusCode的对象
-		// 检查是否有statusCode字段（表示有HTTP错误）
-		if ((response as any).statusCode && (response as any).statusCode >= 400) {
-			const statusCode = (response as any).statusCode;
-			const responseBody = (response as any).body || response;
-			
-			// 尝试从响应中提取错误消息
-			let errorMessage = `HTTP ${statusCode}`;
-			if (responseBody) {
-				if (typeof responseBody === 'string') {
-					try {
-						const parsed = JSON.parse(responseBody);
-						errorMessage = parsed.message || parsed.error || parsed.msg || errorMessage;
-					} catch {
-						errorMessage = responseBody.substring(0, 200);
-					}
-				} else if (responseBody.message) {
-					errorMessage = responseBody.message;
-				} else if (responseBody.error) {
-					errorMessage = responseBody.error;
-				} else if (responseBody.msg) {
-					errorMessage = responseBody.msg;
-				}
-			}
-			
-			const error = new Error(`Alpaca API Error: ${errorMessage}`);
-			(error as any).statusCode = statusCode;
-			(error as any).response = responseBody;
-			(error as any).endpoint = endpoint;
-			(error as any).method = method;
-			(error as any).url = `${baseUrl}${endpoint}`;
-			
-			throw error;
-		}
-		
-		// 如果响应有body字段，返回body，否则返回整个响应
-		if ((response as any).body !== undefined) {
-			return (response as any).body;
-		}
-		
 		return response;
 	} catch (error: any) {
-		// 如果是我们刚才抛出的错误（已经有statusCode），直接重新抛出
-		if (error.statusCode) {
-			throw error;
+		// n8n的httpRequest在遇到HTTP错误时会抛出异常
+		// 错误对象中通常包含response字段，里面有statusCode和body
+		let statusCode: number | undefined;
+		let responseBody: any;
+		let errorMessage = error.message || 'Unknown error';
+
+		// 尝试从错误对象中提取HTTP响应信息
+		if (error.response) {
+			// 标准HTTP错误响应结构
+			statusCode = error.response.statusCode || error.response.status;
+			responseBody = error.response.body;
+		} else if (error.statusCode) {
+			// 错误对象直接包含statusCode
+			statusCode = error.statusCode;
+			responseBody = error.response || error.body;
+		} else if (error.status) {
+			// 某些情况下使用status字段
+			statusCode = error.status;
+			responseBody = error.body;
 		}
-		
-		// 检查是否是HTTP错误但没有被正确处理
-		if (error.code && (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND')) {
-			const enhancedError = new Error(`Network Error: ${error.message}`);
-			(enhancedError as any).originalError = error;
-			(enhancedError as any).endpoint = endpoint;
-			(enhancedError as any).method = method;
-			(enhancedError as any).url = `${baseUrl}${endpoint}`;
-			throw enhancedError;
+
+		// 如果有响应体，尝试提取Alpaca API的错误消息
+		if (responseBody) {
+			if (typeof responseBody === 'string') {
+				try {
+					const parsed = JSON.parse(responseBody);
+					errorMessage = parsed.message || parsed.error || parsed.msg || errorMessage;
+					responseBody = parsed;
+				} catch {
+					errorMessage = responseBody.substring(0, 200);
+				}
+			} else if (typeof responseBody === 'object') {
+				// 从响应对象中提取错误消息
+				errorMessage = responseBody.message || 
+				              responseBody.error || 
+				              responseBody.msg || 
+				              responseBody.detail ||
+				              errorMessage;
+			}
 		}
-		
-		// 处理其他错误
-		const errorMessage = error.message || String(error);
-		const enhancedError = new Error(`Alpaca API Request Failed: ${errorMessage}`);
-		(enhancedError as any).originalError = error;
+
+		// 构建详细的错误信息
+		let detailedMessage = `Alpaca API Error`;
+		if (statusCode) {
+			detailedMessage += ` (HTTP ${statusCode})`;
+		}
+		detailedMessage += `: ${errorMessage}`;
+
+		const enhancedError = new Error(detailedMessage);
+		(enhancedError as any).statusCode = statusCode;
+		(enhancedError as any).response = responseBody;
 		(enhancedError as any).endpoint = endpoint;
 		(enhancedError as any).method = method;
 		(enhancedError as any).url = `${baseUrl}${endpoint}`;
-		
-		// 尝试从错误对象中提取状态码
-		if (error.response?.statusCode) {
-			(enhancedError as any).statusCode = error.response.statusCode;
+		(enhancedError as any).originalError = error;
+
+		// 如果是网络错误
+		if (error.code && (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND')) {
+			(enhancedError as any).networkError = true;
 		}
-		if (error.response?.body) {
-			(enhancedError as any).response = error.response.body;
-		}
-		
+
 		throw enhancedError;
 	}
 }
