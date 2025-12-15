@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  n8n:
+    image: n8nio/n8n
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=password
+      # 可选：如果需要在容器内加载自定义节点
+      - N8N_CUSTOM_EXTENSIONS=/home/node/.n8n/custom
+    volumes:
+      # n8n数据目录
+      - n8n_data:/home/node/.n8n
+      # 挂载构建后的自定义节点
+      - ./dist:/home/node/.n8n/custom
+    # 如果需要持久化工作流数据，可以添加以下卷
+    # volumes:
+    #   - ./n8n_data:/home/node/.n8n
+
+volumes:
+  n8n_data:
+
