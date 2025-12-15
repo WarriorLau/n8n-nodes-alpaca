@@ -409,15 +409,41 @@ class Alpaca {
                 }
             }
             catch (error) {
+                const errorOutput = {
+                    error: true,
+                    message: error instanceof Error ? error.message : String(error),
+                };
+                // 添加详细的错误信息
+                if (error.statusCode) {
+                    errorOutput.statusCode = error.statusCode;
+                }
+                if (error.endpoint) {
+                    errorOutput.endpoint = error.endpoint;
+                }
+                if (error.method) {
+                    errorOutput.method = error.method;
+                }
+                if (error.response) {
+                    errorOutput.response = error.response;
+                }
+                if (error.url) {
+                    errorOutput.url = error.url;
+                }
                 if (this.continueOnFail()) {
                     returnData.push({
-                        json: {
-                            error: error instanceof Error ? error.message : String(error),
-                        },
+                        json: errorOutput,
                     });
                     continue;
                 }
-                throw error;
+                // 格式化错误消息以便更好地显示
+                let errorMessage = errorOutput.message;
+                if (error.statusCode) {
+                    errorMessage = `${errorMessage} (Status: ${error.statusCode})`;
+                }
+                if (error.endpoint) {
+                    errorMessage = `${errorMessage} - Endpoint: ${error.method} ${error.endpoint}`;
+                }
+                throw new Error(errorMessage);
             }
         }
         return [returnData];
@@ -434,11 +460,85 @@ async function makeRequest(baseUrl, credentials, method, endpoint, body) {
             'Content-Type': 'application/json',
         },
         json: true,
+        // 不自动抛出HTTP错误，允许我们手动处理
+        ignoreHttpStatusErrors: true,
     };
     if (body) {
         options.body = body;
     }
-    return await this.helpers.httpRequest(options);
+    try {
+        const response = await this.helpers.httpRequest(options);
+        // httpRequest在ignoreHttpStatusErrors为true时，会返回包含statusCode的对象
+        // 检查是否有statusCode字段（表示有HTTP错误）
+        if (response.statusCode && response.statusCode >= 400) {
+            const statusCode = response.statusCode;
+            const responseBody = response.body || response;
+            // 尝试从响应中提取错误消息
+            let errorMessage = `HTTP ${statusCode}`;
+            if (responseBody) {
+                if (typeof responseBody === 'string') {
+                    try {
+                        const parsed = JSON.parse(responseBody);
+                        errorMessage = parsed.message || parsed.error || parsed.msg || errorMessage;
+                    }
+                    catch {
+                        errorMessage = responseBody.substring(0, 200);
+                    }
+                }
+                else if (responseBody.message) {
+                    errorMessage = responseBody.message;
+                }
+                else if (responseBody.error) {
+                    errorMessage = responseBody.error;
+                }
+                else if (responseBody.msg) {
+                    errorMessage = responseBody.msg;
+                }
+            }
+            const error = new Error(`Alpaca API Error: ${errorMessage}`);
+            error.statusCode = statusCode;
+            error.response = responseBody;
+            error.endpoint = endpoint;
+            error.method = method;
+            error.url = `${baseUrl}${endpoint}`;
+            throw error;
+        }
+        // 如果响应有body字段，返回body，否则返回整个响应
+        if (response.body !== undefined) {
+            return response.body;
+        }
+        return response;
+    }
+    catch (error) {
+        // 如果是我们刚才抛出的错误（已经有statusCode），直接重新抛出
+        if (error.statusCode) {
+            throw error;
+        }
+        // 检查是否是HTTP错误但没有被正确处理
+        if (error.code && (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND')) {
+            const enhancedError = new Error(`Network Error: ${error.message}`);
+            enhancedError.originalError = error;
+            enhancedError.endpoint = endpoint;
+            enhancedError.method = method;
+            enhancedError.url = `${baseUrl}${endpoint}`;
+            throw enhancedError;
+        }
+        // 处理其他错误
+        const errorMessage = error.message || String(error);
+        const enhancedError = new Error(`Alpaca API Request Failed: ${errorMessage}`);
+        enhancedError.originalError = error;
+        enhancedError.endpoint = endpoint;
+        enhancedError.method = method;
+        enhancedError.url = `${baseUrl}${endpoint}`;
+        // 尝试从错误对象中提取状态码
+        if (error.response?.statusCode) {
+            enhancedError.statusCode = error.response.statusCode;
+        }
+        if (error.response?.body) {
+            enhancedError.response = error.response.body;
+        }
+        throw enhancedError;
+    }
 }
 async function getOrders(baseUrl, credentials, itemIndex) {
     const status = this.getNodeParameter('status', itemIndex);
