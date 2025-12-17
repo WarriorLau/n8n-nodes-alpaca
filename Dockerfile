@@ -23,12 +23,8 @@ RUN curl -Ls https://astral.sh/uv/install.sh | bash \
     && mkdir -p /data/mcp \
     && chown -R node:node /data/mcp
 
-# 安装 @alpacahq/alpaca-trade-api 到 n8n 的 node_modules
-# 确保安装到正确的位置，让 n8n 能够找到它
-RUN cd /usr/local/lib/node_modules/n8n && \
-    npm install @alpacahq/alpaca-trade-api@^3.0.2 && \
-    chown -R node:node /usr/local/lib/node_modules/n8n/node_modules/@alpacahq && \
-    echo "✅ @alpacahq/alpaca-trade-api installed successfully"
+# 注意：@alpacahq/alpaca-trade-api 已经在构建时打包进 dist 文件中了
+# 不需要在容器中安装 npm 包
 
 
 WORKDIR /data/mcp

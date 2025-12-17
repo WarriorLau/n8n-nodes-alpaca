@@ -1,18 +1,9 @@
 #!/bin/bash
 set -e
 
-# 检查并安装 @alpacahq/alpaca-trade-api（如果不存在）
-ALPACA_MODULE_PATH="/usr/local/lib/node_modules/n8n/node_modules/@alpacahq/alpaca-trade-api"
-if [ ! -d "$ALPACA_MODULE_PATH" ]; then
-    echo "⚠️  @alpacahq/alpaca-trade-api not found, installing..."
-    cd /usr/local/lib/node_modules/n8n
-    npm install @alpacahq/alpaca-trade-api@^3.0.2 || {
-        echo "❌ Failed to install @alpacahq/alpaca-trade-api"
-        echo "This may cause custom Alpaca nodes to fail"
-    }
-else
-    echo "✅ @alpacahq/alpaca-trade-api is available"
-fi
+# 注意：@alpacahq/alpaca-trade-api 已经在构建时打包进 dist 文件中了
+# 不需要在运行时检查或安装 npm 包
+echo "✅ Using bundled Alpaca dependencies"
 
 # 处理 MCP 配置
 if [ -f /data/mcp/.env.template ]; then
