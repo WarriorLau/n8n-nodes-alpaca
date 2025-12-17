@@ -23615,6 +23615,7 @@ var __importDefault = exports && exports.__importDefault || function(mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Alpaca = void 0;
+var n8n_workflow_1 = require("n8n-workflow");
 var alpaca_trade_api_1 = __importDefault(require_dist());
 var Alpaca = class {
   constructor() {
@@ -24162,14 +24163,14 @@ async function getAccount(alpaca) {
   try {
     return await alpaca.getAccount();
   } catch (error) {
-    throw handleAlpacaError(error, "get account");
+    throw handleAlpacaError(this, error, "get account");
   }
 }
 async function getPositions(alpaca) {
   try {
     return await alpaca.getPositions();
   } catch (error) {
-    throw handleAlpacaError(error, "get positions");
+    throw handleAlpacaError(this, error, "get positions");
   }
 }
 async function getOrders(alpaca, itemIndex) {
@@ -24183,7 +24184,7 @@ async function getOrders(alpaca, itemIndex) {
     };
     return await alpaca.getOrders(params);
   } catch (error) {
-    throw handleAlpacaError(error, "get orders");
+    throw handleAlpacaError(this, error, "get orders");
   }
 }
 async function createOrder(alpaca, itemIndex) {
@@ -24210,7 +24211,7 @@ async function createOrder(alpaca, itemIndex) {
   try {
     return await alpaca.createOrder(orderParams);
   } catch (error) {
-    throw handleAlpacaError(error, "create order");
+    throw handleAlpacaError(this, error, "create order");
   }
 }
 async function cancelOrder(alpaca, itemIndex) {
@@ -24218,7 +24219,7 @@ async function cancelOrder(alpaca, itemIndex) {
   try {
     return await alpaca.cancelOrder(orderId);
   } catch (error) {
-    const enhancedError = handleAlpacaError(error, "cancel order");
+    const enhancedError = handleAlpacaError(this, error, "cancel order");
     enhancedError.orderId = orderId;
     throw enhancedError;
   }
@@ -24247,7 +24248,7 @@ async function getBars(alpaca, itemIndex) {
     }
     return bars;
   } catch (error) {
-    throw handleAlpacaError(error, "get bars");
+    throw handleAlpacaError(this, error, "get bars");
   }
 }
 async function getLatestBar(alpaca, itemIndex) {
@@ -24271,7 +24272,7 @@ async function getLatestBar(alpaca, itemIndex) {
     }
     return bars;
   } catch (error) {
-    throw handleAlpacaError(error, "get latest bars");
+    throw handleAlpacaError(this, error, "get latest bars");
   }
 }
 async function getTrades(alpaca, itemIndex) {
@@ -24296,7 +24297,7 @@ async function getTrades(alpaca, itemIndex) {
     }
     return trades;
   } catch (error) {
-    throw handleAlpacaError(error, "get trades");
+    throw handleAlpacaError(this, error, "get trades");
   }
 }
 async function getQuotes(alpaca, itemIndex) {
@@ -24321,12 +24322,10 @@ async function getQuotes(alpaca, itemIndex) {
     }
     return quotes;
   } catch (error) {
-    throw handleAlpacaError(error, "get quotes");
+    throw handleAlpacaError(this, error, "get quotes");
   }
 }
-function handleAlpacaError(error, operation) {
-  const enhancedError = new Error();
-  let errorMessage = error.message || String(error);
+function handleAlpacaError(executeFunctions, error, operation) {
   let statusCode;
   if (error.statusCode) {
     statusCode = error.statusCode;
@@ -24344,6 +24343,7 @@ function handleAlpacaError(error, operation) {
     } catch {
     }
   }
+  let errorMessage = error.message || String(error);
   if (responseBody && typeof responseBody === "object") {
     if (responseBody.message) {
       errorMessage = responseBody.message;
@@ -24352,38 +24352,48 @@ function handleAlpacaError(error, operation) {
     } else if (responseBody.msg) {
       errorMessage = responseBody.msg;
     }
-    Object.keys(responseBody).forEach((key) => {
-      enhancedError[key] = responseBody[key];
-    });
   }
   let detailedMessage = `Failed to ${operation}`;
   if (statusCode) {
     detailedMessage += ` (HTTP ${statusCode})`;
   }
   detailedMessage += `: ${errorMessage}`;
-  if (enhancedError.code) {
-    detailedMessage += ` [Code: ${enhancedError.code}]`;
+  if (responseBody?.code) {
+    detailedMessage += ` [Code: ${responseBody.code}]`;
   }
-  if (enhancedError.reject_reason) {
-    detailedMessage += ` [Reason: ${enhancedError.reject_reason}]`;
+  if (responseBody?.reject_reason) {
+    detailedMessage += ` [Reason: ${responseBody.reject_reason}]`;
   }
-  if (enhancedError.existing_order_id) {
-    detailedMessage += ` [Existing Order ID: ${enhancedError.existing_order_id}]`;
+  if (responseBody?.existing_order_id) {
+    detailedMessage += ` [Existing Order ID: ${responseBody.existing_order_id}]`;
   }
-  enhancedError.message = detailedMessage;
-  enhancedError.statusCode = statusCode;
-  enhancedError.response = responseBody;
-  enhancedError.originalError = error;
+  const errorContext = {
+    message: detailedMessage
+  };
+  if (responseBody && typeof responseBody === "object") {
+    Object.keys(responseBody).forEach((key) => {
+      errorContext[key] = responseBody[key];
+    });
+  }
   if (error.endpoint) {
-    enhancedError.endpoint = error.endpoint;
+    errorContext.endpoint = error.endpoint;
   }
   if (error.method) {
-    enhancedError.method = error.method;
+    errorContext.method = error.method;
   }
   if (error.url) {
-    enhancedError.url = error.url;
+    errorContext.url = error.url;
   }
-  return enhancedError;
+  const nodeApiError = new n8n_workflow_1.NodeApiError(executeFunctions.getNode(), error, {
+    message: detailedMessage,
+    description: responseBody?.message || errorMessage
+  });
+  if (responseBody && typeof responseBody === "object") {
+    Object.keys(responseBody).forEach((key) => {
+      nodeApiError[key] = responseBody[key];
+    });
+  }
+  return nodeApiError;
 }
 function getAlpacaClient(credentials) {
   return new alpaca_trade_api_1.default({
@@ -24399,7 +24409,7 @@ async function getOrderById(alpaca, itemIndex) {
     const order = await alpaca.getOrder(orderId);
     return order;
   } catch (error) {
-    const enhancedError = handleAlpacaError(error, "get order");
+    const enhancedError = handleAlpacaError(this, error, "get order");
     enhancedError.orderId = orderId;
     throw enhancedError;
   }
@@ -24432,7 +24442,7 @@ async function getNews(alpaca, itemIndex) {
     const news = await alpaca.getNews(params);
     return news;
   } catch (error) {
-    const enhancedError = handleAlpacaError(error, "get news");
+    const enhancedError = handleAlpacaError(this, error, "get news");
     enhancedError.params = { symbol, symbols, startDate, endDate, limit };
     throw enhancedError;
   }
