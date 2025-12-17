@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  n8n:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${N8N_PORT}:5678"
+    restart: unless-stopped
+    environment:
+      # 域名和基础配置
+      N8N_HOST: "${N8N_DOMAIN:-n8n.example.com}"  # 默认域名
+      N8N_PROTOCOL: "http"                        # 推荐HTTPS
+      N8N_WEBHOOK_URL: "http://${N8N_DOMAIN}"    # Webhook基础URL
+      
+      # SMTP邮件配置
+      N8N_EMAIL_MODE: "smtp"
+      N8N_SMTP_HOST: "${SMTP_HOST:-smtp.example.com}"
+      N8N_SMTP_PORT: "${SMTP_PORT:-465}"
+      N8N_SMTP_USER: "${SMTP_USER:-user@example.com}"
+      N8N_SMTP_PASS: "${SMTP_PASSWORD}"            # 密码通过环境变量传入
+      N8N_SMTP_SENDER: "${SMTP_SENDER:-noreply@example.com}"
+      #N8N_SMTP_SECURE: "true"                      # 强制SSL/TLS
+
+      # 原始配置保留
+      N8N_BASIC_AUTH_ACTIVE: "${N8N_BASIC_AUTH_ACTIVE}"
+      N8N_BASIC_AUTH_USER: "${N8N_BASIC_AUTH_USER}"
+      N8N_BASIC_AUTH_PASSWORD: "${N8N_BASIC_AUTH_PASSWORD}"
+      N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE: "${N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE}"
+      GENERIC_TIMEZONE: "Asia/Shanghai"
+      TZ: "Asia/Shanghai"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_SECURE_COOKIE: "false"
+
+      N8N_CUSTOM_EXTENSIONS: "/custom-nodes"
+      # 控制是否启动 alpaca-mcp-server（默认: true）
+      START_MCP_SERVER: "${START_MCP_SERVER:-true}"
+      ALPACA_API_KEY: "${ALPACA_API_KEY:-None}"
+      ALPACA_SECRET_KEY: "${ALPACA_SECRET_KEY:-None}"
+      ALPACA_PAPER_TRADE: "${ALPACA_PAPER_TRADE}"
+      TRADE_API_URL: "${TRADE_API_URL:-None}"
+      TRADE_API_WSS: "${TRADE_API_WSS:-None}"
+      DATA_API_URL: "${DATA_API_URL:-None}"
+      STREAM_DATA_WSS: "${STREAM_DATA_WSS:-None}"
+    volumes:
+      - mcp_data:/data/mcp
+      - /home/ubuntu/n8n-nodes-alpaca/dist:/custom-nodes:ro
+      - n8n_data:/home/node/.n8n
+    networks:
+      - n8n_network
+volumes:
+  n8n_data:
+  mcp_data:
+networks:
+  n8n_network:
+   external: true
