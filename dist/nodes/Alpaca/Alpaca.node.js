@@ -24163,11 +24163,10 @@ async function getOrders(alpaca, itemIndex) {
   const limit = this.getNodeParameter("limit", itemIndex);
   try {
     const params = {
-      limit
+      limit,
+      status
+      // 显式传递 status，包括 'all'
     };
-    if (status !== "all") {
-      params.status = status;
-    }
     return await alpaca.getOrders(params);
   } catch (error) {
     const enhancedError = new Error(`Failed to get orders: ${error.message || String(error)}`);
@@ -24226,7 +24225,6 @@ async function getBars(alpaca, itemIndex) {
   const limit = this.getNodeParameter("limit", itemIndex);
   try {
     const params = {
-      symbols: [symbol],
       timeframe,
       limit
     };
@@ -24283,7 +24281,6 @@ async function getTrades(alpaca, itemIndex) {
   const limit = this.getNodeParameter("limit", itemIndex);
   try {
     const params = {
-      symbols: [symbol],
       limit
     };
     if (start) {
@@ -24312,7 +24309,6 @@ async function getQuotes(alpaca, itemIndex) {
   const limit = this.getNodeParameter("limit", itemIndex);
   try {
     const params = {
-      symbols: [symbol],
       limit
     };
     if (start) {

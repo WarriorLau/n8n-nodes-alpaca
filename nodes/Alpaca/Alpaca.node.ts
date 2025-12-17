@@ -693,11 +693,8 @@ async function getOrders(
 	try {
 		const params: any = {
 			limit: limit,
+			status: status, // 显式传递 status，包括 'all'
 		};
-
-		if (status !== 'all') {
-			params.status = status;
-		}
 
 		return await alpaca.getOrders(params);
 	} catch (error: any) {
@@ -777,8 +774,9 @@ async function getBars(
 	const limit = this.getNodeParameter('limit', itemIndex) as number;
 
 	try {
+		// getBarsV2 的第一个参数是 symbol，第二个参数是 options
+		// options 中不应该包含 symbols，因为 symbol 已经作为第一个参数传递了
 		const params: any = {
-			symbols: [symbol],
 			timeframe: timeframe,
 			limit: limit,
 		};
@@ -849,8 +847,9 @@ async function getTrades(
 	const limit = this.getNodeParameter('limit', itemIndex) as number;
 
 	try {
+		// getTradesV2 的第一个参数是 symbol，第二个参数是 options
+		// options 中不应该包含 symbols，因为 symbol 已经作为第一个参数传递了
 		const params: any = {
-			symbols: [symbol],
 			limit: limit,
 		};
 
@@ -886,8 +885,9 @@ async function getQuotes(
 	const limit = this.getNodeParameter('limit', itemIndex) as number;
 
 	try {
+		// getQuotesV2 的第一个参数是 symbol，第二个参数是 options
+		// options 中不应该包含 symbols，因为 symbol 已经作为第一个参数传递了
 		const params: any = {
-			symbols: [symbol],
 			limit: limit,
 		};
 
