@@ -516,12 +516,24 @@ export class Alpaca implements INodeType {
 					});
 				}
 			} catch (error: any) {
+				// 构建详细的错误输出对象，包含所有 Alpaca API 返回的字段
 				const errorOutput: any = {
 					error: true,
 					message: error instanceof Error ? error.message : String(error),
 				};
 				
-				// 添加详细的错误信息
+				// 复制错误对象的所有属性到 errorOutput
+				// 这样可以将 code、existing_order_id、reject_reason 等所有字段都包含进来
+				if (error && typeof error === 'object') {
+					Object.keys(error).forEach(key => {
+						// 跳过一些内部属性，但保留所有有用的错误信息
+						if (key !== 'stack' && key !== 'name') {
+							errorOutput[key] = (error as any)[key];
+						}
+					});
+				}
+				
+				// 确保这些关键字段存在
 				if (error.statusCode) {
 					errorOutput.statusCode = error.statusCode;
 				}
@@ -538,6 +550,7 @@ export class Alpaca implements INodeType {
 					errorOutput.url = error.url;
 				}
 				
+				// 如果 continueOnFail 启用，返回错误对象而不是抛出异常
 				if (this.continueOnFail()) {
 					returnData.push({
 						json: errorOutput,
@@ -545,16 +558,42 @@ export class Alpaca implements INodeType {
 					continue;
 				}
 				
-				// 格式化错误消息以便更好地显示
-				let errorMessage = errorOutput.message;
-				if (error.statusCode) {
-					errorMessage = `${errorMessage} (Status: ${error.statusCode})`;
-				}
-				if (error.endpoint) {
-					errorMessage = `${errorMessage} - Endpoint: ${error.method} ${error.endpoint}`;
+				// 构建详细的错误消息
+				let errorMessage = errorOutput.message || 'Unknown error';
+				
+				// 添加状态码
+				if (errorOutput.statusCode) {
+					errorMessage = `${errorMessage} (HTTP ${errorOutput.statusCode})`;
 				}
 				
-				throw new Error(errorMessage);
+				// 添加错误代码（如果有）
+				if (errorOutput.code) {
+					errorMessage = `${errorMessage} [Code: ${errorOutput.code}]`;
+				}
+				
+				// 添加拒绝原因（如果有）
+				if (errorOutput.reject_reason) {
+					errorMessage = `${errorMessage} [Reason: ${errorOutput.reject_reason}]`;
+				}
+				
+				// 添加现有订单ID（如果有）
+				if (errorOutput.existing_order_id) {
+					errorMessage = `${errorMessage} [Existing Order ID: ${errorOutput.existing_order_id}]`;
+				}
+				
+				// 添加端点信息（如果有）
+				if (errorOutput.endpoint) {
+					errorMessage = `${errorMessage} - Endpoint: ${errorOutput.method || 'GET'} ${errorOutput.endpoint}`;
+				}
+				
+				// 创建新的错误对象，保留所有原始信息
+				const finalError = new Error(errorMessage);
+				// 将 errorOutput 的所有属性复制到最终错误对象
+				Object.keys(errorOutput).forEach(key => {
+					(finalError as any)[key] = errorOutput[key];
+				});
+				
+				throw finalError;
 			}
 		}
 
@@ -661,10 +700,7 @@ async function getAccount(
 	try {
 		return await alpaca.getAccount();
 	} catch (error: any) {
-		const enhancedError = new Error(`Failed to get account: ${error.message || String(error)}`);
-		(enhancedError as any).statusCode = error.statusCode || error.status;
-		(enhancedError as any).response = error.response || error.body;
-		throw enhancedError;
+		throw handleAlpacaError(error, 'get account');
 	}
 }
 
@@ -675,10 +711,7 @@ async function getPositions(
 	try {
 		return await alpaca.getPositions();
 	} catch (error: any) {
-		const enhancedError = new Error(`Failed to get positions: ${error.message || String(error)}`);
-		(enhancedError as any).statusCode = error.statusCode || error.status;
-		(enhancedError as any).response = error.response || error.body;
-		throw enhancedError;
+		throw handleAlpacaError(error, 'get positions');
 	}
 }
 
@@ -698,10 +731,7 @@ async function getOrders(
 
 		return await alpaca.getOrders(params);
 	} catch (error: any) {
-		const enhancedError = new Error(`Failed to get orders: ${error.message || String(error)}`);
-		(enhancedError as any).statusCode = error.statusCode || error.status;
-		(enhancedError as any).response = error.response || error.body;
-		throw enhancedError;
+		throw handleAlpacaError(error, 'get orders');
 	}
 }
 
@@ -737,10 +767,7 @@ async function createOrder(
 	try {
 		return await alpaca.createOrder(orderParams);
 	} catch (error: any) {
-		const enhancedError = new Error(`Failed to create order: ${error.message || String(error)}`);
-		(enhancedError as any).statusCode = error.statusCode || error.status;
-		(enhancedError as any).response = error.response || error.body;
-		throw enhancedError;
+		throw handleAlpacaError(error, 'create order');
 	}
 }
 
@@ -754,9 +781,7 @@ async function cancelOrder(
 	try {
 		return await alpaca.cancelOrder(orderId);
 	} catch (error: any) {
-		const enhancedError = new Error(`Failed to cancel order: ${error.message || String(error)}`);
-		(enhancedError as any).statusCode = error.statusCode || error.status;
-		(enhancedError as any).response = error.response || error.body;
+		const enhancedError = handleAlpacaError(error, 'cancel order');
 		(enhancedError as any).orderId = orderId;
 		throw enhancedError;
 	}
@@ -795,10 +820,7 @@ async function getBars(
 		}
 		return bars;
 	} catch (error: any) {
-		const enhancedError = new Error(`Failed to get bars: ${error.message || String(error)}`);
-		(enhancedError as any).statusCode = error.statusCode || error.status;
-		(enhancedError as any).response = error.response || error.body;
-		throw enhancedError;
+		throw handleAlpacaError(error, 'get bars');
 	}
 }
 
@@ -829,10 +851,7 @@ async function getLatestBar(
 		}
 		return bars;
 	} catch (error: any) {
-		const enhancedError = new Error(`Failed to get latest bars: ${error.message || String(error)}`);
-		(enhancedError as any).statusCode = error.statusCode || error.status;
-		(enhancedError as any).response = error.response || error.body;
-		throw enhancedError;
+		throw handleAlpacaError(error, 'get latest bars');
 	}
 }
 
@@ -867,10 +886,7 @@ async function getTrades(
 		}
 		return trades;
 	} catch (error: any) {
-		const enhancedError = new Error(`Failed to get trades: ${error.message || String(error)}`);
-		(enhancedError as any).statusCode = error.statusCode || error.status;
-		(enhancedError as any).response = error.response || error.body;
-		throw enhancedError;
+		throw handleAlpacaError(error, 'get trades');
 	}
 }
 
@@ -905,11 +921,97 @@ async function getQuotes(
 		}
 		return quotes;
 	} catch (error: any) {
-		const enhancedError = new Error(`Failed to get quotes: ${error.message || String(error)}`);
-		(enhancedError as any).statusCode = error.statusCode || error.status;
-		(enhancedError as any).response = error.response || error.body;
-		throw enhancedError;
+		throw handleAlpacaError(error, 'get quotes');
 	}
+}
+
+/**
+ * 统一的 Alpaca API 错误处理函数
+ * 从 SDK 错误中提取所有详细信息，包括 code、message、existing_order_id、reject_reason 等
+ */
+function handleAlpacaError(error: any, operation: string): Error {
+	// 初始化增强错误对象
+	const enhancedError: any = new Error();
+	
+	// 基础错误消息
+	let errorMessage = error.message || String(error);
+	
+	// 提取状态码
+	let statusCode: number | undefined;
+	if (error.statusCode) {
+		statusCode = error.statusCode;
+	} else if (error.status) {
+		statusCode = error.status;
+	} else if (error.response?.statusCode) {
+		statusCode = error.response.statusCode;
+	} else if (error.response?.status) {
+		statusCode = error.response.status;
+	}
+	
+	// 提取响应体（可能包含详细的错误信息）
+	let responseBody: any = error.response || error.body || error.responseBody;
+	
+	// 如果 responseBody 是字符串，尝试解析为 JSON
+	if (typeof responseBody === 'string') {
+		try {
+			responseBody = JSON.parse(responseBody);
+		} catch {
+			// 如果解析失败，保持为字符串
+		}
+	}
+	
+	// 从响应体中提取 Alpaca API 的详细错误信息
+	if (responseBody && typeof responseBody === 'object') {
+		// 提取所有可能的错误字段
+		if (responseBody.message) {
+			errorMessage = responseBody.message;
+		} else if (responseBody.error) {
+			errorMessage = responseBody.error;
+		} else if (responseBody.msg) {
+			errorMessage = responseBody.msg;
+		}
+		
+		// 将响应体的所有字段附加到错误对象
+		Object.keys(responseBody).forEach(key => {
+			enhancedError[key] = responseBody[key];
+		});
+	}
+	
+	// 构建详细的错误消息
+	let detailedMessage = `Failed to ${operation}`;
+	if (statusCode) {
+		detailedMessage += ` (HTTP ${statusCode})`;
+	}
+	detailedMessage += `: ${errorMessage}`;
+	
+	// 如果有额外的错误信息，添加到消息中
+	if (enhancedError.code) {
+		detailedMessage += ` [Code: ${enhancedError.code}]`;
+	}
+	if (enhancedError.reject_reason) {
+		detailedMessage += ` [Reason: ${enhancedError.reject_reason}]`;
+	}
+	if (enhancedError.existing_order_id) {
+		detailedMessage += ` [Existing Order ID: ${enhancedError.existing_order_id}]`;
+	}
+	
+	enhancedError.message = detailedMessage;
+	enhancedError.statusCode = statusCode;
+	enhancedError.response = responseBody;
+	enhancedError.originalError = error;
+	
+	// 保留原始错误的所有属性
+	if (error.endpoint) {
+		enhancedError.endpoint = error.endpoint;
+	}
+	if (error.method) {
+		enhancedError.method = error.method;
+	}
+	if (error.url) {
+		enhancedError.url = error.url;
+	}
+	
+	return enhancedError as Error;
 }
 
 function getAlpacaClient(credentials: any): AlpacaClient {
@@ -932,9 +1034,7 @@ async function getOrderById(
 		const order = await alpaca.getOrder(orderId);
 		return order;
 	} catch (error: any) {
-		const enhancedError = new Error(`Failed to get order: ${error.message || String(error)}`);
-		(enhancedError as any).statusCode = error.statusCode || error.status;
-		(enhancedError as any).response = error.response || error.body;
+		const enhancedError = handleAlpacaError(error, 'get order');
 		(enhancedError as any).orderId = orderId;
 		throw enhancedError;
 	}
@@ -978,9 +1078,7 @@ async function getNews(
 		const news = await alpaca.getNews(params);
 		return news;
 	} catch (error: any) {
-		const enhancedError = new Error(`Failed to get news: ${error.message || String(error)}`);
-		(enhancedError as any).statusCode = error.statusCode || error.status;
-		(enhancedError as any).response = error.response || error.body;
+		const enhancedError = handleAlpacaError(error, 'get news');
 		(enhancedError as any).params = { symbol, symbols, startDate, endDate, limit };
 		throw enhancedError;
 	}

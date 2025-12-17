@@ -24103,6 +24103,13 @@ var Alpaca = class {
           error: true,
           message: error instanceof Error ? error.message : String(error)
         };
+        if (error && typeof error === "object") {
+          Object.keys(error).forEach((key) => {
+            if (key !== "stack" && key !== "name") {
+              errorOutput[key] = error[key];
+            }
+          });
+        }
         if (error.statusCode) {
           errorOutput.statusCode = error.statusCode;
         }
@@ -24124,14 +24131,27 @@ var Alpaca = class {
           });
           continue;
         }
-        let errorMessage = errorOutput.message;
-        if (error.statusCode) {
-          errorMessage = `${errorMessage} (Status: ${error.statusCode})`;
+        let errorMessage = errorOutput.message || "Unknown error";
+        if (errorOutput.statusCode) {
+          errorMessage = `${errorMessage} (HTTP ${errorOutput.statusCode})`;
         }
-        if (error.endpoint) {
-          errorMessage = `${errorMessage} - Endpoint: ${error.method} ${error.endpoint}`;
+        if (errorOutput.code) {
+          errorMessage = `${errorMessage} [Code: ${errorOutput.code}]`;
         }
-        throw new Error(errorMessage);
+        if (errorOutput.reject_reason) {
+          errorMessage = `${errorMessage} [Reason: ${errorOutput.reject_reason}]`;
+        }
+        if (errorOutput.existing_order_id) {
+          errorMessage = `${errorMessage} [Existing Order ID: ${errorOutput.existing_order_id}]`;
+        }
+        if (errorOutput.endpoint) {
+          errorMessage = `${errorMessage} - Endpoint: ${errorOutput.method || "GET"} ${errorOutput.endpoint}`;
+        }
+        const finalError = new Error(errorMessage);
+        Object.keys(errorOutput).forEach((key) => {
+          finalError[key] = errorOutput[key];
+        });
+        throw finalError;
       }
     }
     return [returnData];
@@ -24142,20 +24162,14 @@ async function getAccount(alpaca) {
   try {
     return await alpaca.getAccount();
   } catch (error) {
-    const enhancedError = new Error(`Failed to get account: ${error.message || String(error)}`);
-    enhancedError.statusCode = error.statusCode || error.status;
-    enhancedError.response = error.response || error.body;
-    throw enhancedError;
+    throw handleAlpacaError(error, "get account");
   }
 }
 async function getPositions(alpaca) {
   try {
     return await alpaca.getPositions();
   } catch (error) {
-    const enhancedError = new Error(`Failed to get positions: ${error.message || String(error)}`);
-    enhancedError.statusCode = error.statusCode || error.status;
-    enhancedError.response = error.response || error.body;
-    throw enhancedError;
+    throw handleAlpacaError(error, "get positions");
   }
 }
 async function getOrders(alpaca, itemIndex) {
@@ -24169,10 +24183,7 @@ async function getOrders(alpaca, itemIndex) {
     };
     return await alpaca.getOrders(params);
   } catch (error) {
-    const enhancedError = new Error(`Failed to get orders: ${error.message || String(error)}`);
-    enhancedError.statusCode = error.statusCode || error.status;
-    enhancedError.response = error.response || error.body;
-    throw enhancedError;
+    throw handleAlpacaError(error, "get orders");
   }
 }
 async function createOrder(alpaca, itemIndex) {
@@ -24199,10 +24210,7 @@ async function createOrder(alpaca, itemIndex) {
   try {
     return await alpaca.createOrder(orderParams);
   } catch (error) {
-    const enhancedError = new Error(`Failed to create order: ${error.message || String(error)}`);
-    enhancedError.statusCode = error.statusCode || error.status;
-    enhancedError.response = error.response || error.body;
-    throw enhancedError;
+    throw handleAlpacaError(error, "create order");
   }
 }
 async function cancelOrder(alpaca, itemIndex) {
@@ -24210,9 +24218,7 @@ async function cancelOrder(alpaca, itemIndex) {
   try {
     return await alpaca.cancelOrder(orderId);
   } catch (error) {
-    const enhancedError = new Error(`Failed to cancel order: ${error.message || String(error)}`);
-    enhancedError.statusCode = error.statusCode || error.status;
-    enhancedError.response = error.response || error.body;
+    const enhancedError = handleAlpacaError(error, "cancel order");
     enhancedError.orderId = orderId;
     throw enhancedError;
   }
@@ -24241,10 +24247,7 @@ async function getBars(alpaca, itemIndex) {
     }
     return bars;
   } catch (error) {
-    const enhancedError = new Error(`Failed to get bars: ${error.message || String(error)}`);
-    enhancedError.statusCode = error.statusCode || error.status;
-    enhancedError.response = error.response || error.body;
-    throw enhancedError;
+    throw handleAlpacaError(error, "get bars");
   }
 }
 async function getLatestBar(alpaca, itemIndex) {
@@ -24268,10 +24271,7 @@ async function getLatestBar(alpaca, itemIndex) {
     }
     return bars;
   } catch (error) {
-    const enhancedError = new Error(`Failed to get latest bars: ${error.message || String(error)}`);
-    enhancedError.statusCode = error.statusCode || error.status;
-    enhancedError.response = error.response || error.body;
-    throw enhancedError;
+    throw handleAlpacaError(error, "get latest bars");
   }
 }
 async function getTrades(alpaca, itemIndex) {
@@ -24296,10 +24296,7 @@ async function getTrades(alpaca, itemIndex) {
     }
     return trades;
   } catch (error) {
-    const enhancedError = new Error(`Failed to get trades: ${error.message || String(error)}`);
-    enhancedError.statusCode = error.statusCode || error.status;
-    enhancedError.response = error.response || error.body;
-    throw enhancedError;
+    throw handleAlpacaError(error, "get trades");
   }
 }
 async function getQuotes(alpaca, itemIndex) {
@@ -24324,11 +24321,69 @@ async function getQuotes(alpaca, itemIndex) {
     }
     return quotes;
   } catch (error) {
-    const enhancedError = new Error(`Failed to get quotes: ${error.message || String(error)}`);
-    enhancedError.statusCode = error.statusCode || error.status;
-    enhancedError.response = error.response || error.body;
-    throw enhancedError;
+    throw handleAlpacaError(error, "get quotes");
   }
+}
+function handleAlpacaError(error, operation) {
+  const enhancedError = new Error();
+  let errorMessage = error.message || String(error);
+  let statusCode;
+  if (error.statusCode) {
+    statusCode = error.statusCode;
+  } else if (error.status) {
+    statusCode = error.status;
+  } else if (error.response?.statusCode) {
+    statusCode = error.response.statusCode;
+  } else if (error.response?.status) {
+    statusCode = error.response.status;
+  }
+  let responseBody = error.response || error.body || error.responseBody;
+  if (typeof responseBody === "string") {
+    try {
+      responseBody = JSON.parse(responseBody);
+    } catch {
+    }
+  }
+  if (responseBody && typeof responseBody === "object") {
+    if (responseBody.message) {
+      errorMessage = responseBody.message;
+    } else if (responseBody.error) {
+      errorMessage = responseBody.error;
+    } else if (responseBody.msg) {
+      errorMessage = responseBody.msg;
+    }
+    Object.keys(responseBody).forEach((key) => {
+      enhancedError[key] = responseBody[key];
+    });
+  }
+  let detailedMessage = `Failed to ${operation}`;
+  if (statusCode) {
+    detailedMessage += ` (HTTP ${statusCode})`;
+  }
+  detailedMessage += `: ${errorMessage}`;
+  if (enhancedError.code) {
+    detailedMessage += ` [Code: ${enhancedError.code}]`;
+  }
+  if (enhancedError.reject_reason) {
+    detailedMessage += ` [Reason: ${enhancedError.reject_reason}]`;
+  }
+  if (enhancedError.existing_order_id) {
+    detailedMessage += ` [Existing Order ID: ${enhancedError.existing_order_id}]`;
+  }
+  enhancedError.message = detailedMessage;
+  enhancedError.statusCode = statusCode;
+  enhancedError.response = responseBody;
+  enhancedError.originalError = error;
+  if (error.endpoint) {
+    enhancedError.endpoint = error.endpoint;
+  }
+  if (error.method) {
+    enhancedError.method = error.method;
+  }
+  if (error.url) {
+    enhancedError.url = error.url;
+  }
+  return enhancedError;
 }
 function getAlpacaClient(credentials) {
   return new alpaca_trade_api_1.default({
@@ -24344,9 +24399,7 @@ async function getOrderById(alpaca, itemIndex) {
     const order = await alpaca.getOrder(orderId);
     return order;
   } catch (error) {
-    const enhancedError = new Error(`Failed to get order: ${error.message || String(error)}`);
-    enhancedError.statusCode = error.statusCode || error.status;
-    enhancedError.response = error.response || error.body;
+    const enhancedError = handleAlpacaError(error, "get order");
     enhancedError.orderId = orderId;
     throw enhancedError;
   }
@@ -24379,9 +24432,7 @@ async function getNews(alpaca, itemIndex) {
     const news = await alpaca.getNews(params);
     return news;
   } catch (error) {
-    const enhancedError = new Error(`Failed to get news: ${error.message || String(error)}`);
-    enhancedError.statusCode = error.statusCode || error.status;
-    enhancedError.response = error.response || error.body;
+    const enhancedError = handleAlpacaError(error, "get news");
     enhancedError.params = { symbol, symbols, startDate, endDate, limit };
     throw enhancedError;
   }
