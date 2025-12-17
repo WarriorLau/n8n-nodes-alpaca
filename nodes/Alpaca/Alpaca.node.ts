@@ -6,6 +6,8 @@ import {
 	IHttpRequestMethods,
 } from 'n8n-workflow';
 
+import AlpacaClient from '@alpacahq/alpaca-trade-api';
+
 export class Alpaca implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Alpaca',
@@ -87,6 +89,18 @@ export class Alpaca implements INodeType {
 						description: 'Get recent quotes',
 						action: 'Get recent quotes',
 					},
+					{
+						name: 'Get Order By ID',
+						value: 'getOrderById',
+						description: 'Get order by order ID',
+						action: 'Get order by ID',
+					},
+					{
+						name: 'Get News',
+						value: 'getNews',
+						description: 'Get news articles',
+						action: 'Get news articles',
+					},
 				],
 				default: 'getAccount',
 			},
@@ -96,12 +110,73 @@ export class Alpaca implements INodeType {
 				type: 'string',
 				displayOptions: {
 					show: {
-						operation: ['createOrder', 'getBars', 'getLatestBar', 'getTrades', 'getQuotes'],
+						operation: ['createOrder', 'getBars', 'getLatestBar', 'getTrades', 'getQuotes', 'getNews'],
 					},
 				},
 				default: '',
 				required: true,
 				description: 'Trading symbol (e.g., AAPL, TSLA)',
+			},
+			{
+				displayName: 'Order ID',
+				name: 'orderIdForGet',
+				type: 'string',
+				displayOptions: {
+					show: {
+						operation: ['getOrderById'],
+					},
+				},
+				default: '',
+				required: true,
+				description: 'Order ID to retrieve',
+			},
+			{
+				displayName: 'Symbols',
+				name: 'newsSymbols',
+				type: 'string',
+				displayOptions: {
+					show: {
+						operation: ['getNews'],
+					},
+				},
+				default: '',
+				description: 'Comma-separated list of symbols (e.g., AAPL,TSLA). Leave empty for all symbols.',
+			},
+			{
+				displayName: 'Start Date',
+				name: 'startDate',
+				type: 'dateTime',
+				displayOptions: {
+					show: {
+						operation: ['getNews'],
+					},
+				},
+				default: '',
+				description: 'Start date for news (ISO 8601 format)',
+			},
+			{
+				displayName: 'End Date',
+				name: 'endDate',
+				type: 'dateTime',
+				displayOptions: {
+					show: {
+						operation: ['getNews'],
+					},
+				},
+				default: '',
+				description: 'End date for news (ISO 8601 format)',
+			},
+			{
+				displayName: 'Limit',
+				name: 'newsLimit',
+				type: 'number',
+				displayOptions: {
+					show: {
+						operation: ['getNews'],
+					},
+				},
+				default: 50,
+				description: 'Maximum number of news articles to return',
 			},
 			{
 				displayName: 'Symbols',
@@ -371,14 +446,8 @@ export class Alpaca implements INodeType {
 			marketDataBaseUrl?: string;
 		};
 
-		// Trading API base URL (账户、订单、持仓等)
-		const tradingBaseUrl =
-			credentials.environment === 'live'
-				? credentials.baseUrl || 'https://api.alpaca.markets'
-				: credentials.baseUrl || 'https://paper-api.alpaca.markets';
-		
-		// Market Data API base URL (市场数据、K线、交易、报价等)
-		const marketDataBaseUrl = credentials.marketDataBaseUrl || 'https://data.alpaca.markets';
+		// 初始化 Alpaca 客户端
+		const alpaca = getAlpacaClient(credentials);
 
 		for (let i = 0; i < items.length; i++) {
 			const operation = this.getNodeParameter('operation', i) as string;
@@ -388,39 +457,47 @@ export class Alpaca implements INodeType {
 			try {
 				switch (operation) {
 					case 'getAccount':
-						responseData = await makeRequest.call(this, tradingBaseUrl, credentials, 'GET', '/v2/account');
+						responseData = await getAccount.call(this, alpaca);
 						break;
 
 					case 'getPositions':
-						responseData = await makeRequest.call(this, tradingBaseUrl, credentials, 'GET', '/v2/positions');
+						responseData = await getPositions.call(this, alpaca);
 						break;
 
 					case 'getOrders':
-						responseData = await getOrders.call(this, tradingBaseUrl, credentials, i);
+						responseData = await getOrders.call(this, alpaca, i);
 						break;
 
 					case 'createOrder':
-						responseData = await createOrder.call(this, tradingBaseUrl, credentials, i);
+						responseData = await createOrder.call(this, alpaca, i);
 						break;
 
 					case 'cancelOrder':
-						responseData = await cancelOrder.call(this, tradingBaseUrl, credentials, i);
+						responseData = await cancelOrder.call(this, alpaca, i);
 						break;
 
 					case 'getBars':
-						responseData = await getBars.call(this, marketDataBaseUrl, credentials, i);
+						responseData = await getBars.call(this, alpaca, i);
 						break;
 
 					case 'getLatestBar':
-						responseData = await getLatestBar.call(this, marketDataBaseUrl, credentials, i);
+						responseData = await getLatestBar.call(this, alpaca, i);
 						break;
 
 					case 'getTrades':
-						responseData = await getTrades.call(this, marketDataBaseUrl, credentials, i);
+						responseData = await getTrades.call(this, alpaca, i);
 						break;
 
 					case 'getQuotes':
-						responseData = await getQuotes.call(this, marketDataBaseUrl, credentials, i);
+						responseData = await getQuotes.call(this, alpaca, i);
+						break;
+
+					case 'getOrderById':
+						responseData = await getOrderById.call(this, alpaca, i);
+						break;
+
+					case 'getNews':
+						responseData = await getNews.call(this, alpaca, i);
 						break;
 
 					default:
@@ -577,28 +654,63 @@ async function makeRequest(
 	}
 }
 
+async function getAccount(
+	this: IExecuteFunctions,
+	alpaca: AlpacaClient,
+): Promise<any> {
+	try {
+		return await alpaca.getAccount();
+	} catch (error: any) {
+		const enhancedError = new Error(`Failed to get account: ${error.message || String(error)}`);
+		(enhancedError as any).statusCode = error.statusCode || error.status;
+		(enhancedError as any).response = error.response || error.body;
+		throw enhancedError;
+	}
+}
+
+async function getPositions(
+	this: IExecuteFunctions,
+	alpaca: AlpacaClient,
+): Promise<any> {
+	try {
+		return await alpaca.getPositions();
+	} catch (error: any) {
+		const enhancedError = new Error(`Failed to get positions: ${error.message || String(error)}`);
+		(enhancedError as any).statusCode = error.statusCode || error.status;
+		(enhancedError as any).response = error.response || error.body;
+		throw enhancedError;
+	}
+}
+
 async function getOrders(
 	this: IExecuteFunctions,
-	baseUrl: string,
-	credentials: any,
+	alpaca: AlpacaClient,
 	itemIndex: number,
 ): Promise<any> {
 	const status = this.getNodeParameter('status', itemIndex) as string;
 	const limit = this.getNodeParameter('limit', itemIndex) as number;
 
-	let endpoint = '/v2/orders?';
-	if (status !== 'all') {
-		endpoint += `status=${status}&`;
-	}
-	endpoint += `limit=${limit}`;
+	try {
+		const params: any = {
+			limit: limit,
+		};
 
-	return await makeRequest.call(this, baseUrl, credentials, 'GET', endpoint);
+		if (status !== 'all') {
+			params.status = status;
+		}
+
+		return await alpaca.getOrders(params);
+	} catch (error: any) {
+		const enhancedError = new Error(`Failed to get orders: ${error.message || String(error)}`);
+		(enhancedError as any).statusCode = error.statusCode || error.status;
+		(enhancedError as any).response = error.response || error.body;
+		throw enhancedError;
+	}
 }
 
 async function createOrder(
 	this: IExecuteFunctions,
-	baseUrl: string,
-	credentials: any,
+	alpaca: AlpacaClient,
 	itemIndex: number,
 ): Promise<any> {
 	const symbol = this.getNodeParameter('symbol', itemIndex) as string;
@@ -607,41 +719,55 @@ async function createOrder(
 	const qty = this.getNodeParameter('qty', itemIndex) as number;
 	const timeInForce = this.getNodeParameter('timeInForce', itemIndex) as string;
 
-	const body: any = {
+	const orderParams: any = {
 		symbol,
 		side,
 		type: orderType,
-		qty: qty.toString(),
+		qty: qty,
 		time_in_force: timeInForce,
 	};
 
 	if (orderType === 'limit' || orderType === 'stop_limit') {
 		const limitPrice = this.getNodeParameter('limitPrice', itemIndex) as number;
-		body.limit_price = limitPrice.toString();
+		orderParams.limit_price = limitPrice;
 	}
 
 	if (orderType === 'stop' || orderType === 'stop_limit') {
 		const stopPrice = this.getNodeParameter('stopPrice', itemIndex) as number;
-		body.stop_price = stopPrice.toString();
+		orderParams.stop_price = stopPrice;
 	}
 
-	return await makeRequest.call(this, baseUrl, credentials, 'POST', '/v2/orders', body);
+	try {
+		return await alpaca.createOrder(orderParams);
+	} catch (error: any) {
+		const enhancedError = new Error(`Failed to create order: ${error.message || String(error)}`);
+		(enhancedError as any).statusCode = error.statusCode || error.status;
+		(enhancedError as any).response = error.response || error.body;
+		throw enhancedError;
+	}
 }
 
 async function cancelOrder(
 	this: IExecuteFunctions,
-	baseUrl: string,
-	credentials: any,
+	alpaca: AlpacaClient,
 	itemIndex: number,
 ): Promise<any> {
 	const orderId = this.getNodeParameter('orderId', itemIndex) as string;
-	return await makeRequest.call(this, baseUrl, credentials, 'DELETE', `/v2/orders/${orderId}`);
+	
+	try {
+		return await alpaca.cancelOrder(orderId);
+	} catch (error: any) {
+		const enhancedError = new Error(`Failed to cancel order: ${error.message || String(error)}`);
+		(enhancedError as any).statusCode = error.statusCode || error.status;
+		(enhancedError as any).response = error.response || error.body;
+		(enhancedError as any).orderId = orderId;
+		throw enhancedError;
+	}
 }
 
 async function getBars(
 	this: IExecuteFunctions,
-	baseUrl: string,
-	credentials: any,
+	alpaca: AlpacaClient,
 	itemIndex: number,
 ): Promise<any> {
 	const symbol = this.getNodeParameter('symbol', itemIndex) as string;
@@ -650,24 +776,37 @@ async function getBars(
 	const end = this.getNodeParameter('end', itemIndex) as string;
 	const limit = this.getNodeParameter('limit', itemIndex) as number;
 
-	let endpoint = `/v2/stocks/${symbol}/bars?timeframe=${timeframe}`;
+	try {
+		const params: any = {
+			symbols: [symbol],
+			timeframe: timeframe,
+			limit: limit,
+		};
 
-	if (start) {
-		endpoint += `&start=${new Date(start).toISOString()}`;
-	}
-	if (end) {
-		endpoint += `&end=${new Date(end).toISOString()}`;
-	}
-	endpoint += `&limit=${limit}`;
+		if (start) {
+			params.start = new Date(start).toISOString();
+		}
+		if (end) {
+			params.end = new Date(end).toISOString();
+		}
 
-	const response = await makeRequest.call(this, baseUrl, credentials, 'GET', endpoint);
-	return response.bars || [];
+		const barsGenerator = alpaca.getBarsV2(symbol, params);
+		const bars: any[] = [];
+		for await (const bar of barsGenerator) {
+			bars.push(bar);
+		}
+		return bars;
+	} catch (error: any) {
+		const enhancedError = new Error(`Failed to get bars: ${error.message || String(error)}`);
+		(enhancedError as any).statusCode = error.statusCode || error.status;
+		(enhancedError as any).response = error.response || error.body;
+		throw enhancedError;
+	}
 }
 
 async function getLatestBar(
 	this: IExecuteFunctions,
-	baseUrl: string,
-	credentials: any,
+	alpaca: AlpacaClient,
 	itemIndex: number,
 ): Promise<any> {
 	const symbol = this.getNodeParameter('symbol', itemIndex, '') as string;
@@ -675,22 +814,33 @@ async function getLatestBar(
 
 	let symbolsList: string[] = [];
 	if (symbols) {
-		symbolsList = symbols.split(',').map((s) => s.trim());
+		symbolsList = symbols.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
 	} else if (symbol) {
 		symbolsList = [symbol];
 	} else {
 		throw new Error('Either symbol or symbols parameter is required');
 	}
 
-	const endpoint = `/v2/stocks/bars/latest?symbols=${symbolsList.join(',')}`;
-	const response = await makeRequest.call(this, baseUrl, credentials, 'GET', endpoint);
-	return response;
+	try {
+		const bars: any = {};
+		for (const sym of symbolsList) {
+			const bar = await alpaca.getLatestBar(sym);
+			if (bar) {
+				bars[sym] = bar;
+			}
+		}
+		return bars;
+	} catch (error: any) {
+		const enhancedError = new Error(`Failed to get latest bars: ${error.message || String(error)}`);
+		(enhancedError as any).statusCode = error.statusCode || error.status;
+		(enhancedError as any).response = error.response || error.body;
+		throw enhancedError;
+	}
 }
 
 async function getTrades(
 	this: IExecuteFunctions,
-	baseUrl: string,
-	credentials: any,
+	alpaca: AlpacaClient,
 	itemIndex: number,
 ): Promise<any> {
 	const symbol = this.getNodeParameter('symbol', itemIndex) as string;
@@ -698,24 +848,36 @@ async function getTrades(
 	const end = this.getNodeParameter('end', itemIndex) as string;
 	const limit = this.getNodeParameter('limit', itemIndex) as number;
 
-	let endpoint = `/v2/stocks/${symbol}/trades?`;
+	try {
+		const params: any = {
+			symbols: [symbol],
+			limit: limit,
+		};
 
-	if (start) {
-		endpoint += `start=${new Date(start).toISOString()}&`;
-	}
-	if (end) {
-		endpoint += `end=${new Date(end).toISOString()}&`;
-	}
-	endpoint += `limit=${limit}`;
+		if (start) {
+			params.start = new Date(start).toISOString();
+		}
+		if (end) {
+			params.end = new Date(end).toISOString();
+		}
 
-	const response = await makeRequest.call(this, baseUrl, credentials, 'GET', endpoint);
-	return response.trades || [];
+		const tradesGenerator = alpaca.getTradesV2(symbol, params);
+		const trades: any[] = [];
+		for await (const trade of tradesGenerator) {
+			trades.push(trade);
+		}
+		return trades;
+	} catch (error: any) {
+		const enhancedError = new Error(`Failed to get trades: ${error.message || String(error)}`);
+		(enhancedError as any).statusCode = error.statusCode || error.status;
+		(enhancedError as any).response = error.response || error.body;
+		throw enhancedError;
+	}
 }
 
 async function getQuotes(
 	this: IExecuteFunctions,
-	baseUrl: string,
-	credentials: any,
+	alpaca: AlpacaClient,
 	itemIndex: number,
 ): Promise<any> {
 	const symbol = this.getNodeParameter('symbol', itemIndex) as string;
@@ -723,17 +885,103 @@ async function getQuotes(
 	const end = this.getNodeParameter('end', itemIndex) as string;
 	const limit = this.getNodeParameter('limit', itemIndex) as number;
 
-	let endpoint = `/v2/stocks/${symbol}/quotes?`;
+	try {
+		const params: any = {
+			symbols: [symbol],
+			limit: limit,
+		};
 
-	if (start) {
-		endpoint += `start=${new Date(start).toISOString()}&`;
-	}
-	if (end) {
-		endpoint += `end=${new Date(end).toISOString()}&`;
-	}
-	endpoint += `limit=${limit}`;
+		if (start) {
+			params.start = new Date(start).toISOString();
+		}
+		if (end) {
+			params.end = new Date(end).toISOString();
+		}
 
-	const response = await makeRequest.call(this, baseUrl, credentials, 'GET', endpoint);
-	return response.quotes || [];
+		const quotesGenerator = alpaca.getQuotesV2(symbol, params);
+		const quotes: any[] = [];
+		for await (const quote of quotesGenerator) {
+			quotes.push(quote);
+		}
+		return quotes;
+	} catch (error: any) {
+		const enhancedError = new Error(`Failed to get quotes: ${error.message || String(error)}`);
+		(enhancedError as any).statusCode = error.statusCode || error.status;
+		(enhancedError as any).response = error.response || error.body;
+		throw enhancedError;
+	}
 }
 
+function getAlpacaClient(credentials: any): AlpacaClient {
+	return new AlpacaClient({
+		keyId: credentials.apiKeyId,
+		secretKey: credentials.apiSecretKey,
+		paper: credentials.environment === 'paper',
+		baseUrl: credentials.baseUrl || undefined,
+	});
+}
+
+async function getOrderById(
+	this: IExecuteFunctions,
+	alpaca: AlpacaClient,
+	itemIndex: number,
+): Promise<any> {
+	const orderId = this.getNodeParameter('orderIdForGet', itemIndex) as string;
+	
+	try {
+		const order = await alpaca.getOrder(orderId);
+		return order;
+	} catch (error: any) {
+		const enhancedError = new Error(`Failed to get order: ${error.message || String(error)}`);
+		(enhancedError as any).statusCode = error.statusCode || error.status;
+		(enhancedError as any).response = error.response || error.body;
+		(enhancedError as any).orderId = orderId;
+		throw enhancedError;
+	}
+}
+
+async function getNews(
+	this: IExecuteFunctions,
+	alpaca: AlpacaClient,
+	itemIndex: number,
+): Promise<any> {
+	const symbol = this.getNodeParameter('symbol', itemIndex, '') as string;
+	const symbols = this.getNodeParameter('newsSymbols', itemIndex, '') as string;
+	const startDate = this.getNodeParameter('startDate', itemIndex, '') as string;
+	const endDate = this.getNodeParameter('endDate', itemIndex, '') as string;
+	const limit = this.getNodeParameter('newsLimit', itemIndex, 50) as number;
+
+	try {
+		const params: any = {
+			limit: limit,
+		};
+
+		// 处理symbols参数
+		let symbolsList: string[] = [];
+		if (symbols) {
+			symbolsList = symbols.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+		} else if (symbol) {
+			symbolsList = [symbol];
+		}
+		
+		if (symbolsList.length > 0) {
+			params.symbols = symbolsList;
+		}
+
+		if (startDate) {
+			params.start = new Date(startDate).toISOString();
+		}
+		if (endDate) {
+			params.end = new Date(endDate).toISOString();
+		}
+
+		const news = await alpaca.getNews(params);
+		return news;
+	} catch (error: any) {
+		const enhancedError = new Error(`Failed to get news: ${error.message || String(error)}`);
+		(enhancedError as any).statusCode = error.statusCode || error.status;
+		(enhancedError as any).response = error.response || error.body;
+		(enhancedError as any).params = { symbol, symbols, startDate, endDate, limit };
+		throw enhancedError;
+	}
+}
