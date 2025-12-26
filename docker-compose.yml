@@ -1,27 +1,75 @@
 version: '3.8'
 
 services:
+  traefik:
+    image: traefik:v2.10
+    container_name: n8n-traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=n8n_network"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # Let's Encrypt自动证书配置
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL:-your-email@example.com}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      # 日志配置
+      - "--accesslog=true"
+      - "--log.level=INFO"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Traefik dashboard (仅用于调试，生产环境建议关闭)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/letsencrypt:/letsencrypt
+    networks:
+      - n8n_network
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.local`)"
+      - "traefik.http.routers.traefik.entrypoints=web"
+      - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+
   n8n:
     build:
       context: .
       dockerfile: Dockerfile
-    ports:
-      - "${N8N_PORT}:5678"
+    # 移除直接端口映射，通过Traefik访问
+    # ports:
+    #   - "${N8N_PORT}:5678"
     restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      # HTTPS路由配置
+      - "traefik.http.routers.n8n.rule=Host(`${N8N_DOMAIN}`)"
+      - "traefik.http.routers.n8n.entrypoints=websecure"
+      - "traefik.http.routers.n8n.tls.certresolver=letsencrypt"
+      # HTTP到HTTPS重定向
+      - "traefik.http.routers.n8n-http.rule=Host(`${N8N_DOMAIN}`)"
+      - "traefik.http.routers.n8n-http.entrypoints=web"
+      - "traefik.http.routers.n8n-http.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+      # 服务配置
+      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
     environment:
-      # 域名和基础配置
-      N8N_HOST: "${N8N_DOMAIN:-n8n.example.com}"  # 默认域名
-      N8N_PROTOCOL: "http"                        # 推荐HTTPS
-      N8N_WEBHOOK_URL: "http://${N8N_DOMAIN}"    # Webhook基础URL
+      # 域名和基础配置 - 使用HTTPS
+      N8N_HOST: "${N8N_DOMAIN}"
+      N8N_PROTOCOL: "https"
+      N8N_WEBHOOK_URL: "https://${N8N_DOMAIN}"
       
       # SMTP邮件配置
       N8N_EMAIL_MODE: "smtp"
       N8N_SMTP_HOST: "${SMTP_HOST:-smtp.example.com}"
       N8N_SMTP_PORT: "${SMTP_PORT:-465}"
       N8N_SMTP_USER: "${SMTP_USER:-user@example.com}"
-      N8N_SMTP_PASS: "${SMTP_PASSWORD}"            # 密码通过环境变量传入
+      N8N_SMTP_PASS: "${SMTP_PASSWORD}"
       N8N_SMTP_SENDER: "${SMTP_SENDER:-noreply@example.com}"
-      #N8N_SMTP_SECURE: "true"                      # 强制SSL/TLS
+      #N8N_SMTP_SECURE: "true"
 
       # 原始配置保留
       N8N_BASIC_AUTH_ACTIVE: "${N8N_BASIC_AUTH_ACTIVE}"
@@ -32,7 +80,7 @@ services:
       TZ: "Asia/Shanghai"
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
       N8N_RUNNERS_ENABLED: "true"
-      N8N_SECURE_COOKIE: "false"
+      N8N_SECURE_COOKIE: "true"  # 启用安全Cookie
 
       N8N_CUSTOM_EXTENSIONS: "/custom-nodes"
       # 控制是否启动 alpaca-mcp-server（默认: true）
@@ -50,9 +98,13 @@ services:
       - n8n_data:/home/node/.n8n
     networks:
       - n8n_network
+    depends_on:
+      - traefik
+
 volumes:
   n8n_data:
   mcp_data:
+
 networks:
   n8n_network:
-   external: true
+    external: true
