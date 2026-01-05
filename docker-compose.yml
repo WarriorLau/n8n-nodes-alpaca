@@ -1,8 +1,6 @@
-version: '3.8'
-
 services:
   traefik:
-    image: traefik:v2.10
+    image: traefik:v3.6
     container_name: n8n-traefik
     command:
       - "--api.insecure=true"
@@ -60,7 +58,7 @@ services:
       # 域名和基础配置 - 使用HTTPS
       N8N_HOST: "${N8N_DOMAIN}"
       N8N_PROTOCOL: "https"
-      N8N_WEBHOOK_URL: "https://${N8N_DOMAIN}"
+      WEBHOOK_URL: "https://${N8N_DOMAIN}"
       
       # SMTP邮件配置
       N8N_EMAIL_MODE: "smtp"
